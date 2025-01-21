@@ -1,8 +1,14 @@
 package url_shortener_yaml
 
 import (
+	yaml "gopkg.in/yaml.v3"
 	"net/http"
 )
+
+type pathUrl struct {
+	Url  string `yaml:"url"`
+	Path string `yaml:"path"`
+}
 
 // MapHandler will return an http.HandlerFunc (which also
 // implements http.Handler) that will attempt to map any
@@ -11,23 +17,13 @@ import (
 // If the path is not provided in the map, then the fallback
 // http.Handler will be called instead.
 func MapHandler(pathsToUrls map[string]string, fallback http.Handler) http.HandlerFunc {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mux := http.NewServeMux()
-		for k, v := range pathsToUrls {
-			mux.HandleFunc(k, redirect(v, fallback))
-		}
-		mux.ServeHTTP(w, r)
-	})
-	return handler
-}
-
-func redirect(longUrl string, fallback http.Handler) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if longUrl == "" {
-			fallback.ServeHTTP(w, r)
+		path := r.URL.Path
+		if dest, ok := pathsToUrls[path]; ok {
+			http.Redirect(w, r, dest, http.StatusFound)
 			return
 		}
-		http.Redirect(w, r, longUrl, http.StatusTemporaryRedirect)
+		fallback.ServeHTTP(w, r)
 	}
 }
 
@@ -48,6 +44,30 @@ func redirect(longUrl string, fallback http.Handler) func(http.ResponseWriter, *
 // See MapHandler to create a similar http.HandlerFunc via
 // a mapping of paths to urls.
 func YAMLHandler(yml []byte, fallback http.Handler) (http.HandlerFunc, error) {
-	// TODO: Implement this...
-	return nil, nil
+	parsedYaml, err2 := parseYaml(yml)
+	if err2 != nil {
+		return nil, err2
+	}
+	pathMap := buildMap(parsedYaml)
+	return MapHandler(pathMap, fallback), nil
+}
+
+func buildMap(pathUrls []pathUrl) map[string]string {
+	if pathUrls == nil {
+		pathUrls = make([]pathUrl, 0)
+	}
+	var pathMap = make(map[string]string)
+	for _, v := range pathUrls {
+		pathMap[v.Path] = v.Url
+	}
+	return pathMap
+}
+
+func parseYaml(yml []byte) ([]pathUrl, error) {
+	var urls []pathUrl
+	err := yaml.Unmarshal(yml, &urls)
+	if err != nil {
+		return nil, err
+	}
+	return urls, nil
 }
